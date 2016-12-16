@@ -1,13 +1,13 @@
 package compiler.lex.domain;
-
-
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Date;
@@ -564,7 +564,48 @@ public class LL
     	logInfo("follow("+ntm+")=    "+res.substring(0,res.length()-1)+"\n");
     	
     }
-	
+	public void print_predictable()
+	{
+		Set<String>nonterminalset=predicLLanaTable.rowKeySet();
+		row=nonterminals.size();
+		column=terminals.size();
+		List<String> productions=new ArrayList<>();
+		for(int i=0;i<row*column;++i)
+		{
+			productions.add("");
+		}
+//		for(String str:nonterminals)
+//			System.err.println(str);
+		Iterator<String>nonit=nonterminalset.iterator();
+		
+		while(nonit.hasNext())
+		{
+			String nonterminal=nonit.next();
+			logInfo(nonterminal+"   ");
+			Map<String,String>terminalAndproduction=predicLLanaTable.row(nonterminal);
+			Set<Entry<String,String>>tp=terminalAndproduction.entrySet();
+			Iterator<Entry<String,String>>tpit=tp.iterator();
+			while(tpit.hasNext())
+			{
+				Map.Entry<String, String> entry=(Map.Entry<String, String>)tpit.next();
+				String terminal=entry.getKey();
+				String production=entry.getValue();
+				if(!terminal.equals("ε"))
+				{
+					productions.set(nonterminals.indexOf(nonterminal)*column+terminals.indexOf(terminal), production);
+				}
+				logInfo(terminal+" PRODUCTION: "+production+"   ");
+				int arrowpos=production.indexOf("-->");
+				String productionelem=production.substring(arrowpos+3, production.length());
+				//log(productionelem+"    2222");
+				String temp[]=new String[productionelem.length()];
+				temp=productionelem.split(" ");
+				//for(int i=0;i<temp.length;i++)
+					//log(temp[i]+"22211");
+			}
+			logInfo("\n");
+		}
+	}
 	public List<String> print_table()
 	{
 		Set<String>nonterminalset=LLanaTable.rowKeySet();
@@ -657,21 +698,15 @@ public class LL
 		int linecount=1;
 		int analysisId=0;
 		String analysisElem=analysisstr.get(analysisId);
-		if(!analysisElem.equals("{"))
-			{
-			int linepos=tokenlinepos.get(analysisId);
-			analysisstr.add(analysisId, "{");
-			logInfo("第"+linepos+"缺少{"+'\n');
-			}
-		
-		
-		while(analysisId!=analysisstr.size()-1&&!strstack.empty())
+		boolean pop=true;
+		while(analysisId!=analysisstr.size()-1)
 		{
-				for(int x=0;x<strstack.size();x++)
-				{
-					logInfo(strstack.get(x));
-				}
-				logInfo("                           ");
+			for(int x=0;x<strstack.size();x++)
+			{
+				logInfo(strstack.get(x));
+			}
+			logInfo("                           ");
+			
 			//输入信息
 			for(int x=analysisId;x<analysisstr.size();x++)
 			{
@@ -688,32 +723,41 @@ public class LL
 				analysisId++;
 				analysisElem=analysisstr.get(analysisId);
 				strstack.pop();	
+				//if(!LLanaTable.containsRow(strstack.peek()))oldstrstack=(Stack<String>) strstack.clone();
+				//if(nonterminal.equals(";")||nonterminal.equals("{")||nonterminal.equals("}"))linecount++;
 				continue;
 			  }
 			   else
 			   {
-				   strstack.pop();
-				   int linepos=tokenlinepos.get(analysisId);
-				   logInfo("第"+linepos+"行输入缺少"+nonterminal+'\n');
-				   errors.add("第"+linepos+"行输入缺少"+nonterminal);
-				   analysisElem=analysisstr.get(analysisId);
-				   continue;
+				   if(pop)
+				   {
+					   strstack.pop();
+					   jumptopTerminal(nonterminal);
+					   continue;
+				   }
+				  /* else 
+				   {
+					   int linepos=tokenlinepos.get(analysisId);
+					   logInfo("第"+linepos+"行缺少"+nonterminal+'\n');
+					   strstack.pop();
+					   jumptopTerminal(nonterminal);
+					   pop=true;
+					   continue;
+				   }*/
 			   }
 		     }
 			Map<String,String>terminalAndproduction=predicLLanaTable.row(nonterminal);
 			Set<Entry<String,String>>tp=terminalAndproduction.entrySet();
 			Iterator<Entry<String,String>>tpit=tp.iterator();
-			boolean inputabsent=false;//缺少输入符号
-			boolean stackabsent=true;
-			HashMap<String,String>addornot=new HashMap<String,String>();
+			HashMap<String,String>cur_terminal_pro=new HashMap<String,String>();
 			while(tpit.hasNext())//遍历当前的非终结符的产生式
 			{
 				Map.Entry<String, String> entry=(Map.Entry<String, String>)tpit.next();
 				String terminal=entry.getKey();//first,follow
 				String production=entry.getValue();////first,follow
+				cur_terminal_pro.put(terminal, production);
 				int arrowpos=production.indexOf("-->");
 				String productionelem=production.substring(arrowpos+3, production.length());//截取产生式
-				addornot.put(terminal, production);
 				if(!analysisElem.equals(terminal))
 				{
 					if(!tpit.hasNext())//当遍历完当前非终结符的产生式还没有对应的终结符时，报错，并跳过当前的终结符
@@ -726,50 +770,51 @@ public class LL
 							}
 						else
 						{
-							for(int x=strstack.size()-1;x>0;x--)
-								{
-									String stackelem=strstack.get(x);
-									if(!predicLLanaTable.containsRow(stackelem)&&!stackelem.equals(analysisElem))
-									{//读取的输入如果不需要添加字符的话，那么该字符应该不是终结符
-										if(!terminals.contains(analysisElem))
-											{
-											   //System.out.println(stackelem+"no need adding");
-											   break;
-											}
-									    else if(analysisElem.equals("+")||analysisElem.equals("-")||analysisElem.equals("*")||analysisElem.equals("/"))break;//如果该字符是终结符的话,那么当前栈顶对于需要添加的字符来说，如果其产生式是synch那么显然不行(需要弹出栈顶)
-										else
-											{
-											int linepos=tokenlinepos.get(analysisId);
-											analysisstr.add(analysisId, stackelem);
-											analysisElem=analysisstr.get(analysisId);
-											logInfo("第"+linepos+"行缺少"+stackelem+'\n');
-											errors.add("第"+linepos+"行缺少"+stackelem);
-											inputabsent=true;
-											break;
-											}
-									}
-									else if(stackelem.equals(analysisElem)&&x!=strstack.size()-1)
-									{
-										stackabsent=false;//栈中存在当前输入中的字符，且不在栈顶
-										break;
-									}
-								}
-							if(!inputabsent) //输入不缺少的时候，往下分析;如果栈中存在当前的输入字符，且不在栈顶，就弹出栈顶
+							if(!terminals.contains(analysisElem))
 							{
-								if(!stackabsent)
-									{
-									    strstack.pop();
-									    break;
-									}
 								linecount=tokenlinepos.get(analysisId);
 								error(tokenlinepos.get(analysisId),analysisElem, errors);
-								analysisId++;
-								analysisElem=analysisstr.get(analysisId);
+							    analysisId++;
+							    analysisElem=analysisstr.get(analysisId);
+							    break;
 							}
-							else break;
-						}
+							else
+							{
+									//pop=false;
+									String stackelem="";
+									for(int x=strstack.size()-1;x>0;x--)
+										{
+											stackelem=strstack.get(x);
+											if(!predicLLanaTable.containsRow(stackelem)&&!stackelem.equals(analysisElem))
+											{			
+												tokenlinepos.add(analysisId,tokenlinepos.get(analysisId-1));
+												analysisstr.add(analysisId, stackelem); 
+												break;
+											}
+										}
+									if(cur_terminal_pro.containsKey(stackelem)&&!cur_terminal_pro.get(stackelem).equals("synch"))
+									{
+										int linepos=tokenlinepos.get(analysisId);
+										analysisElem=analysisstr.get(analysisId);
+										logInfo("第"+linepos+"行缺少"+stackelem+'\n');
+										errors.add("第"+linepos+"行缺少"+stackelem+'\n');
+										//error(tokenlinepos.get(analysisId),analysisElem, errors);
+										break;
+										//analysisId++;
+										//analysisElem=analysisstr.get(analysisId);
+									}
+								else
+								{
+									linecount=tokenlinepos.get(analysisId);
+									error(tokenlinepos.get(analysisId),analysisElem, errors);
+								    analysisId++;
+								    analysisElem=analysisstr.get(analysisId);
+								    break;
+								}
+							}
 						}
 				   }
+				}
 				else
 				{
 					String topNonterminal=strstack.peek();
@@ -806,18 +851,6 @@ public class LL
 			logInfo(analysisstr.get(x));
 		}
 		logInfo("                           ");
-		if(!strstack.empty())
-		{
-			for(int x=0;x<strstack.size();x++)
-			{
-				String absentTerminal=strstack.get(x);
-				if(!predicLLanaTable.containsRow(absentTerminal)&&absentTerminal!="$")
-				{
-					logInfo("输入缺少:  "+absentTerminal);
-					errors.add("输入缺少:  "+absentTerminal);
-				}
-			}
-		}
 		return errors;
 
 		}
@@ -854,7 +887,7 @@ public class LL
     
     void logErr(Object object)
     {
-	 	System.out.print(object);
+	 	System.err.print(object);
 	// 	log(errLogPath,"logErr_",object.toString());
     }
     
@@ -888,12 +921,13 @@ public class LL
     
     
 
-protected void jumptopTerminal(int linepos,String str)
+protected void jumptopTerminal(String str)
     {
-    	logInfo("第"+linepos+"行"+"输入缺少符号 "+str+'\n');
+    	logInfo("栈顶终结符: "+str+"不匹配，跳过"+'\n');
     }
     protected void jumptopNonterminal(String str)
     {
     	logInfo("弹出栈顶非终结符!"+'\n');
     }
 }
+
